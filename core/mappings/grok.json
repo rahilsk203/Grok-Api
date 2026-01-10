@@ -61,5 +61,41 @@
       "7f9a9b0c62c7c8775525be38003aa09725ea709115",
       "7f82eca570c9532c4193e3784a3a017ef7229a3edf"
     ]
+  },
+  {
+    "xsid_script": "static/chunks/c80f214f9719da0a.js",
+    "action_script": "/_next/static/chunks/f75e999ebccd577e.js",
+    "actions": [
+      "7ff0a191c6161075249915063c5fe1f37d41809e3e",
+      "7f6788592d5ab8b2632f08964a5daa67062731ab4d",
+      "7fe437b7572b2cb562be859e6958e3f3a7969772ff"
+    ]
+  },
+  {
+    "xsid_script": "static/chunks/d989483aaf8325f2.js",
+    "action_script": "/_next/static/chunks/eb88b81545d15b6e.js",
+    "actions": [
+      "7f65330cfc11d31fbff7b6130ac6527788ccfc0a84",
+      "7f55adc7304554e4cccf55661d6b540a72bb97b8de",
+      "7f6cd0f9600726b318a84ca17abd26732fdacaca1f"
+    ]
+  },
+  {
+    "xsid_script": "static/chunks/cf9022566766805c.js",
+    "action_script": "/_next/static/chunks/cedf89d7d0251ece.js",
+    "actions": [
+      "7f54dcb92ca7ca7abe36f4e0ac2d93bc5c4fcf5b54",
+      "7fa5b8415b9a5076a5a52ac56bc6654588d642f04b",
+      "7fe5e666694bf1e4d03571b6b35a0d9ee41982d153"
+    ]
+  },
+  {
+    "xsid_script": "static/chunks/d7fc9927cff3c94f.js",
+    "action_script": "/_next/static/chunks/5f18cfa5b0fda0e9.js",
+    "actions": [
+      "7f59b42834401076ca74f667efb9390d26c457950a",
+      "7f6be92304663dde4152258a24f562c5902ebfce9b",
+      "7fcd26be56180f15fea0bb4f3a80bfd8e318774bf5"
+    ]
   }
 ]

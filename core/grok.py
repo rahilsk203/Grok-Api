@@ -5,6 +5,10 @@ from bs4         import BeautifulSoup
 from json        import dumps, loads
 from secrets     import token_hex
 from uuid        import uuid4
+import time
+import random
+
+# Remove free-proxy import and functionality
 
 @dataclass
 class Models:
@@ -32,10 +36,126 @@ class Grok:
         self.mode: str = _Models.get_model_mode(model, 1)
         self.c_run: int = 0
         self.keys: dict = Anon.generate_keys()
+        
+        # Store original proxy
+        self.original_proxy = proxy
+        
+        # Set up proxy if provided
         if proxy:
             self.session.proxies = {
                 "all": proxy
             }
+        
+        # Initialize retry settings
+        self.max_retries: int = 5  # Increased max retries
+        self.base_delay: float = 0.5  # Reduced base delay for faster retries
+        self.max_delay: float = 30.0  # Reduced maximum delay
+        self.backoff_factor: float = 1.5  # Reduced backoff factor for faster retries
+        
+        # Fast retry settings for quick bypass
+        self.fast_retry_attempts: int = 2  # Number of fast retry attempts
+        self.fast_delay: float = 0.2  # Short delay for fast retries
+    
+    def _calculate_delay(self, attempt: int, is_fast_retry: bool = False) -> float:
+        """Calculate delay with exponential backoff and jitter"""
+        if is_fast_retry:
+            # Use fast retry settings
+            base_delay = min(self.fast_delay * (1.2 ** attempt), 2.0)
+        else:
+            # Calculate base delay with exponential backoff
+            base_delay = min(self.base_delay * (self.backoff_factor ** attempt), self.max_delay)
+        
+        # Add jitter to prevent thundering herd problem (±25% of base delay)
+        jitter_range = base_delay * 0.25
+        jitter = random.uniform(-jitter_range, jitter_range)
+        delay = max(base_delay + jitter, 0.05)  # Ensure minimum delay
+        return delay
+    
+    def _create_new_session(self):
+        """Create a new session with fresh impersonation to bypass rate limits"""
+        new_session = requests.Session(impersonate="chrome136", default_headers=False)
+        if hasattr(self, 'session') and hasattr(self.session, 'proxies'):
+            new_session.proxies = getattr(self.session, 'proxies', {})
+        return new_session
+    
+    # Remove _get_free_proxy method since we're removing free-proxy functionality
+    
+    def _handle_rate_limit(self, message: str, extra_data: dict = None) -> dict:
+        """Handle rate limiting with multiple strategies including fast bypass"""
+        
+        # First, try fast retries with minimal delay
+        for fast_attempt in range(self.fast_retry_attempts):
+            delay = self._calculate_delay(fast_attempt, is_fast_retry=True)
+            Log.Info(f"Rate limited (fast retry {fast_attempt + 1}/{self.fast_retry_attempts}). Waiting {delay:.2f}s before fast retry...")
+            time.sleep(delay)
+            
+            try:
+                # Create a new instance with the same proxy settings
+                new_grok = Grok(self.model, self.original_proxy)
+                
+                # If we have extra_data, use continue_convo, otherwise use start_convo
+                if extra_data:
+                    # Load conversation state in new instance
+                    new_grok._load(extra_data)
+                    new_grok.c_run = 1
+                    new_grok.anon_user = extra_data["anon_user"]
+                    new_grok.keys["privateKey"] = extra_data["privateKey"]
+                    new_grok.c_request(new_grok.actions[1])
+                    new_grok.c_request(new_grok.actions[2])
+                    result = new_grok.continue_conversation(message, extra_data)
+                    
+                    # If successful, return result
+                    if "error" not in result or "rate limiting" not in str(result.get("error", "")).lower():
+                        return result
+                else:
+                    result = new_grok.start_convo(message, extra_data)
+                    
+                    # If successful, return result
+                    if "error" not in result or "rate limiting" not in str(result.get("error", "")).lower():
+                        return result
+                        
+            except Exception as e:
+                Log.Error(f"Fast retry attempt {fast_attempt + 1} failed: {str(e)}")
+                continue  # Continue to normal retries
+        
+        # If fast retries didn't work, proceed with normal retries
+        for attempt in range(self.max_retries):
+            delay = self._calculate_delay(attempt)
+            Log.Info(f"Rate limited (normal retry {attempt + 1}/{self.max_retries}). Waiting {delay:.2f}s before retry...")
+            time.sleep(delay)
+            
+            try:
+                # Create a new instance with the same proxy settings
+                new_grok = Grok(self.model, self.original_proxy)
+                
+                # If we have extra_data, use continue_convo, otherwise use start_convo
+                if extra_data:
+                    # Load conversation state in new instance
+                    new_grok._load(extra_data)
+                    new_grok.c_run = 1
+                    new_grok.anon_user = extra_data["anon_user"]
+                    new_grok.keys["privateKey"] = extra_data["privateKey"]
+                    new_grok.c_request(new_grok.actions[1])
+                    new_grok.c_request(new_grok.actions[2])
+                    result = new_grok.continue_conversation(message, extra_data)
+                    
+                    # If successful, return result
+                    if "error" not in result or "rate limiting" not in str(result.get("error", "")).lower():
+                        return result
+                else:
+                    result = new_grok.start_convo(message, extra_data)
+                    
+                    # If successful, return result
+                    if "error" not in result or "rate limiting" not in str(result.get("error", "")).lower():
+                        return result
+                        
+            except Exception as e:
+                Log.Error(f"Normal retry attempt {attempt + 1} failed: {str(e)}")
+                if attempt == self.max_retries - 1:  # Last attempt
+                    Log.Error("All retry attempts failed")
+                    return {"error": "All retry attempts failed due to rate limiting"}
+        
+        return {"error": "Failed after maximum retries"}
     
     def _load(self, extra_data: dict = None) -> None:
         
@@ -145,7 +265,6 @@ class Grok:
                 'modelName': self.model,
                 'message': message,
                 'fileAttachments': [],
-                'imageAttachments': [],
                 'disableSearch': False,
                 'enableImageGeneration': True,
                 'returnImageBytes': False,
@@ -170,7 +289,8 @@ class Grok:
                 'isAsyncChat': False,
             }
             
-            convo_request: requests.models.Response = self.session.post('https://grok.com/rest/app-chat/conversations/new', json=conversation_data, timeout=9999)
+            # Increase timeout for handling rate limits
+            convo_request: requests.models.Response = self.session.post('https://grok.com/rest/app-chat/conversations/new', json=conversation_data, timeout=45)
             
             if "modelResponse" in convo_request.text:
                 response = conversation_id = parent_response = image_urls = None
@@ -213,11 +333,48 @@ class Grok:
                     }
                 }
             else:
-                if 'rejected by anti-bot rules' in convo_request.text:
-                    return Grok(self.session.proxies.get("all")).start_convo(message=message, extra_data=extra_data)
-                Log.Error("Something went wrong")
-                Log.Error(convo_request.text)
-                return {"error": convo_request.text}
+                # Enhanced rate limit detection with multiple patterns
+                response_text = convo_request.text
+                
+                # Check for various rate limiting indicators
+                rate_limit_indicators = [
+                    'Grok is under heavy usage right now',
+                    'under heavy usage',
+                    'rate limit',
+                    'too many requests',
+                    'try again later',
+                    'exceeded',
+                    'limit exceeded',
+                    'throttled'
+                ]
+                
+                if any(indicator.lower() in response_text.lower() for indicator in rate_limit_indicators):
+                    Log.Info("Detected rate limiting, implementing retry strategy")
+                    return self._handle_rate_limit(message, extra_data)
+                elif 'rejected by anti-bot rules' in response_text:
+                    # Try fast retry first to bypass anti-bot
+                    for fast_attempt in range(self.fast_retry_attempts):
+                        delay = self._calculate_delay(fast_attempt, is_fast_retry=True)
+                        Log.Info(f"Anti-bot detected (fast retry {fast_attempt + 1}/{self.fast_retry_attempts}). Waiting {delay:.2f}s before retry...")
+                        time.sleep(delay)
+                        
+                        try:
+                            new_grok = Grok(self.model, self.original_proxy)
+                            result = new_grok.start_convo(message=message, extra_data=extra_data)
+                            
+                            if "error" not in result or "anti-bot" not in str(result.get("error", "")).lower():
+                                return result
+                        except Exception as e:
+                            Log.Error(f"Anti-bot fast retry {fast_attempt + 1} failed: {str(e)}")
+                            continue
+                    
+                    # If fast retry doesn't work, create new instance with fresh session to bypass anti-bot
+                    new_grok = Grok(self.model, self.original_proxy)
+                    return new_grok.start_convo(message=message, extra_data=extra_data)
+                else:
+                    Log.Error("Something went wrong")
+                    Log.Error(response_text)
+                    return {"error": response_text}
         else:
             conversation_data: dict = {
                 'message': message,
@@ -225,7 +382,6 @@ class Grok:
                 'parentResponseId': extra_data["parentResponseId"],
                 'disableSearch': False,
                 'enableImageGeneration': True,
-                'imageAttachments': [],
                 'returnImageBytes': False,
                 'returnRawGrokInXaiRequest': False,
                 'fileAttachments': [],
@@ -258,7 +414,8 @@ class Grok:
                 'isRegenRequest': False,
             }
 
-            convo_request: requests.models.Response = self.session.post(f'https://grok.com/rest/app-chat/conversations/{extra_data["conversationId"]}/responses', json=conversation_data, timeout=9999)
+            # Increase timeout for handling rate limits
+            convo_request: requests.models.Response = self.session.post(f'https://grok.com/rest/app-chat/conversations/{extra_data["conversationId"]}/responses', json=conversation_data, timeout=45)
 
             if "modelResponse" in convo_request.text:
                 response = conversation_id = parent_response = image_urls = None
@@ -271,13 +428,13 @@ class Grok:
                     if token:
                         stream_response.append(token)
                         
-                    if not response and data.get('result', {}).get('modelResponse', {}).get('message'):
-                        response: str = data['result']['modelResponse']['message']
+                    if not response and data.get('result', {}).get('response', {}).get('modelResponse', {}).get('message'):
+                        response: str = data['result']['response']['modelResponse']['message']
 
-                    if not parent_response and data.get('result', {}).get('modelResponse', {}).get('responseId'):
+                    if not parent_response and data.get('result', {}).get('response', {}).get('modelResponse', {}).get('responseId'):
                         parent_response: str = data['result']['modelResponse']['responseId']
                         
-                    if not image_urls and data.get('result', {}).get('modelResponse', {}).get('generatedImageUrls', {}):
+                    if not image_urls and data.get('result', {}).get('response', {}).get('modelResponse', {}).get('generatedImageUrls', {}):
                         image_urls: str = data['result']['modelResponse']['generatedImageUrls']
                 
                 return {
@@ -297,10 +454,171 @@ class Grok:
                     }
                 }
             else:
-                if 'rejected by anti-bot rules' in convo_request.text:
-                    return Grok(self.session.proxies.get("all")).start_convo(message=message, extra_data=extra_data)
-                Log.Error("Something went wrong")
-                Log.Error(convo_request.text)
-                return {"error": convo_request.text}
-            
+                # Enhanced rate limit detection with multiple patterns
+                response_text = convo_request.text
+                
+                # Check for various rate limiting indicators
+                rate_limit_indicators = [
+                    'Grok is under heavy usage right now',
+                    'under heavy usage',
+                    'rate limit',
+                    'too many requests',
+                    'try again later',
+                    'exceeded',
+                    'limit exceeded',
+                    'throttled'
+                ]
+                
+                if any(indicator.lower() in response_text.lower() for indicator in rate_limit_indicators):
+                    Log.Info("Detected rate limiting, implementing retry strategy")
+                    return self._handle_rate_limit(message, extra_data)
+                elif 'rejected by anti-bot rules' in response_text:
+                    # Create new instance with fresh session to bypass anti-bot
+                    new_grok = Grok(self.model, self.original_proxy)
+                    return new_grok.start_convo(message=message, extra_data=extra_data)
+                else:
+                    Log.Error("Something went wrong")
+                    Log.Error(response_text)
+                    return {"error": response_text}
+    
+    def continue_conversation(self, message: str, extra_data: dict) -> dict:
+        """Continue an existing conversation"""
+        # Set up the session with the provided extra_data
+        self._load(extra_data)
+        self.c_run: int = 1
+        self.anon_user: str = extra_data["anon_user"]
+        self.keys["privateKey"] = extra_data["privateKey"]
+        self.c_request(self.actions[1])
+        self.c_request(self.actions[2])
+        xsid: str = Signature.generate_sign(f'/rest/app-chat/conversations/{extra_data["conversationId"]}/responses', 'POST', self.verification_token, self.svg_data, self.numbers)
+        
+        self.session.headers = self.headers.CONVERSATION
+        self.session.headers.update({
+            'baggage': self.baggage,
+            'sentry-trace': f'{self.sentry_trace}-{str(uuid4()).replace("-", "")[:16]}-0',
+            'x-statsig-id': xsid,
+            'x-xai-request-id': str(uuid4()),
+            'traceparent': f"00-{token_hex(16)}-{token_hex(8)}-00"
+        })
+        self.session.headers = Headers.fix_order(self.session.headers, self.headers.CONVERSATION)
+        
+        conversation_data: dict = {
+            'message': message,
+            'modelName': self.model,
+            'parentResponseId': extra_data["parentResponseId"],
+            'disableSearch': False,
+            'enableImageGeneration': True,
+            'returnImageBytes': False,
+            'returnRawGrokInXaiRequest': False,
+            'fileAttachments': [],
+            'enableImageStreaming': True,
+            'imageGenerationCount': 2,
+            'forceConcise': False,
+            'toolOverrides': {},
+            'enableSideBySide': True,
+            'sendFinalMetadata': True,
+            'customPersonality': '',
+            'isReasoning': False,
+            'webpageUrls': [],
+            'metadata': {
+                'requestModelDetails': {
+                    'modelId': self.model,
+                },
+                'request_metadata': {
+                    'model': self.model,
+                    'mode': self.mode,
+                },
+            },
+            'disableTextFollowUps': False,
+            'disableArtifact': False,
+            'isFromGrokFiles': False,
+            'disableMemory': False,
+            'forceSideBySide': False,
+            'modelMode': self.model_mode,
+            'isAsyncChat': False,
+            'skipCancelCurrentInflightRequests': False,
+            'isRegenRequest': False,
+        }
 
+        # Increase timeout for handling rate limits
+        convo_request: requests.models.Response = self.session.post(f'https://grok.com/rest/app-chat/conversations/{extra_data["conversationId"]}/responses', json=conversation_data, timeout=45)
+
+        if "modelResponse" in convo_request.text:
+            response = parent_response = image_urls = None
+            stream_response: list = []
+            
+            for response_dict in convo_request.text.strip().split('\n'):
+                data: dict = loads(response_dict)
+
+                token: str = data.get('result', {}).get('token')
+                if token:
+                    stream_response.append(token)
+                    
+                if not response and data.get('result', {}).get('modelResponse', {}).get('message'):
+                    response: str = data['result']['modelResponse']['message']
+
+                if not parent_response and data.get('result', {}).get('response', {}).get('modelResponse', {}).get('responseId'):
+                    parent_response: str = data['result']['modelResponse']['responseId']
+                    
+                if not image_urls and data.get('result', {}).get('response', {}).get('modelResponse', {}).get('generatedImageUrls', {}):
+                    image_urls: str = data['result']['modelResponse']['generatedImageUrls']
+            
+            return {
+                "response": response,
+                "stream_response": stream_response,
+                "images": image_urls,
+                "extra_data": {
+                    "anon_user": self.anon_user,
+                    "cookies": self.session.cookies.get_dict(),
+                    "actions": self.actions,
+                    "xsid_script": self.xsid_script,
+                    "baggage": self.baggage,
+                    "sentry_trace": self.sentry_trace,
+                    "conversationId": extra_data["conversationId"],
+                    "parentResponseId": parent_response,
+                    "privateKey": self.keys["privateKey"]
+                }
+            }
+        else:
+            # Enhanced rate limit detection with multiple patterns
+            response_text = convo_request.text
+            
+            # Check for various rate limiting indicators
+            rate_limit_indicators = [
+                'Grok is under heavy usage right now',
+                'under heavy usage',
+                'rate limit',
+                'too many requests',
+                'try again later',
+                'exceeded',
+                'limit exceeded',
+                'throttled'
+            ]
+            
+            if any(indicator.lower() in response_text.lower() for indicator in rate_limit_indicators):
+                Log.Info("Detected rate limiting, implementing retry strategy")
+                return self._handle_rate_limit(message, extra_data)
+            elif 'rejected by anti-bot rules' in response_text:
+                # Try fast retry first to bypass anti-bot
+                for fast_attempt in range(self.fast_retry_attempts):
+                    delay = self._calculate_delay(fast_attempt, is_fast_retry=True)
+                    Log.Info(f"Anti-bot detected (fast retry {fast_attempt + 1}/{self.fast_retry_attempts}). Waiting {delay:.2f}s before retry...")
+                    time.sleep(delay)
+                    
+                    try:
+                        new_grok = Grok(self.model, self.original_proxy)
+                        result = new_grok.continue_conversation(message=message, extra_data=extra_data)
+                        
+                        if "error" not in result or "anti-bot" not in str(result.get("error", "")).lower():
+                            return result
+                    except Exception as e:
+                        Log.Error(f"Anti-bot fast retry {fast_attempt + 1} failed: {str(e)}")
+                        continue
+                
+                # If fast retry doesn't work, create new instance with fresh session to bypass anti-bot
+                new_grok = Grok(self.model, self.original_proxy)
+                return new_grok.continue_conversation(message=message, extra_data=extra_data)
+            else:
+                Log.Error("Something went wrong")
+                Log.Error(response_text)
+                return {"error": response_text}

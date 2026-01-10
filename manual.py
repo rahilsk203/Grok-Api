@@ -1,29 +1,65 @@
-from core import Log, Grok
-from json import dumps
+from core import Grok
+import time
+import random
 
-proxy = "http://user:pass@ip:port"
+def example_usage():
+    """
+    Example usage of the Grok API with proper rate limiting handling
+    """
+    print("Grok API Usage Examples")
+    print("="*50)
+    
+    # Example 1: Basic usage
+    print("\n1. Basic usage:")
+    try:
+        response = Grok("grok-3-fast").start_convo("Hello, how are you?")
+        if "error" not in response:
+            print(f"Response: {response['response']}")
+        else:
+            print(f"Error: {response['error']}")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # Add delay to avoid rate limiting
+    time.sleep(random.uniform(2, 5))
+    
+    # Example 2: Using with extra_data for follow-up conversations
+    print("\n2. Follow-up conversation:")
+    try:
+        initial_response = Grok("grok-3-fast").start_convo("What is the capital of France?")
+        if "extra_data" in initial_response and "error" not in initial_response:
+            print(f"Initial response: {initial_response['response']}")
+            
+            # Follow up on the conversation
+            follow_up = Grok("grok-3-fast").start_convo("What else can you tell me about it?", initial_response["extra_data"])
+            if "error" not in follow_up:
+                print(f"Follow-up response: {follow_up['response']}")
+            else:
+                print(f"Follow-up error: {follow_up['error']}")
+        else:
+            print(f"Initial request failed: {initial_response.get('error', 'Unknown error')}")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # Example 3: Using different models
+    print("\n3. Using different models:")
+    models = ["grok-3-fast", "grok-3-auto"]
+    for model in models:
+        try:
+            print(f"\nTrying {model}...")
+            response = Grok(model).start_convo(f"Hi, which model are you? Respond with just the model name: {model}")
+            if "error" not in response:
+                print(f"Response: {response['response']}")
+            else:
+                print(f"Error with {model}: {response['error']}")
+            
+            # Delay between model requests
+            time.sleep(random.uniform(3, 6))
+        except Exception as e:
+            print(f"Error with {model}: {e}")
+    
+    print("\nNote: Rate limiting is now handled automatically with exponential backoff.")
+    print("The system will retry failed requests with increasing delays.")
 
-message1: str = "Hey how are you??"
-Log.Info("USER: " + message1)
-data1 = Grok(proxy).start_convo(message1, extra_data=None)
-Log.Info("GROK: " + data1["response"])
-
-message2: str = "cool stuff"
-Log.Info("USER: " + message2)
-data2 = Grok(proxy).start_convo(message2, extra_data=data1["extra_data"])
-Log.Info("GROK: " + data2["response"])
-
-message3: str = "crazy"
-Log.Info("USER: " + message3)
-data3 = Grok(proxy).start_convo(message3, extra_data=data2["extra_data"])
-Log.Info("GROK: " + data3["response"])
-
-message4: str = "Well this is the 4th message in our chat now omg"
-Log.Info("USER: " + message4)
-data4 = Grok(proxy).start_convo(message4, extra_data=data3["extra_data"])
-Log.Info("GROK: " + data4["response"])
-
-message5: str = "And now the 5th omg"
-Log.Info("USER: " + message5)
-data5 = Grok(proxy).start_convo(message5, extra_data=data4["extra_data"])
-Log.Info("GROK: " + data5["response"])
+if __name__ == "__main__":
+    example_usage()

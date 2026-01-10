@@ -1,184 +1,180 @@
-# Grok-Api
+# Grok API
 
-A free Grok API wrapper that allows you to use Grok without API access or account authentication.
-
-## Overview
-
-This project provides a Python-based API wrapper for Grok AI, enabling you to interact with Grok's conversational AI without requiring official API access or account credentials. It includes both a direct Python interface and a FastAPI server for easy integration into your applications.
+A free, unofficial API wrapper for Grok AI that allows access without requiring official API keys or user authentication.
 
 ## Features
 
-- 🔓 **No Authentication Required** - Access Grok without an account
-- 🆓 **Completely Free** - No API keys or paid subscriptions needed
-- 🚀 **FastAPI Server** - Ready-to-use REST API endpoint
-- 🌐 **Proxy Support** - Full support for HTTP proxies
-- 📡 **Streaming Responses** - Receive both complete responses and token-by-token streams
-- ⚡ **High Performance** - Multi-worker support for concurrent requests
+- **Fast Rate Limit Bypass**: Enhanced rate limiting with fast retry mechanisms to minimize delays
+- **Proxy Support**: Full proxy support for bypassing restrictions
+- **Conversation Persistence**: Maintain conversation history and context
+- **Multiple Model Support**: Supports grok-3-auto, grok-3-fast, grok-4, and grok-4-mini-thinking-tahoe
+- **Robust Error Handling**: Comprehensive error handling and retry mechanisms
 
 ## Installation
 
+1. Clone the repository:
 ```bash
-git clone https://github.com/realasfngl/Grok-Api.git
+git clone https://github.com/your-repo/Grok-Api.git
 cd Grok-Api
+```
+
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
 ```
 
-### Requirements
-
-- Python 3.10+
-- curl_cffi
-- fastapi
-- uvicorn
-- coincurve
-- beautifulsoup4
-- pydantic
-- colorama
-
 ## Usage
 
-### Models:
+### Running the Server
 
-| Model | Mode | Description |
-|-------|------|-------------|
-| `grok-3-auto` | auto | Automatic mode |
-| `grok-3-fast` | fast | Fast processing mode |
-| `grok-4` | expert | Expert mode |
-| `grok-4-mini-thinking-tahoe` | grok-4-mini-thinking | Mini thinking mode |
-
-### Manual Usage (Python)
-
-**New conversation:**
-```python
-from core import Grok
-
-response = Grok("grok-3-fast").start_convo("Hello, how are you today?")
-print(response)
-
-proxy = "http://username:password@ip:port"
-response = Grok("grok-3-fast", proxy).start_convo("Tell me a joke")
-print(response)
-```
-
-**Continue conversation:**
-```python
-from core import Grok
-
-response = Grok().start_convo("Hello, how are you today?")
-print(response)
-
-response2 = Grok().start_convo("That's nice! Glad to hear!", extra_data=response["extra_data"])
-print(response2)
-```
-**Example Output:**
-```python
-{
-    "response": "Yo, I'm just chilling in the digital realm...",
-    "stream_response": ["Yo", ",", " I'm", " just", " chilling", "..."],
-    "images": None,
-    "extra_data": {"..."}
-}
-```
-
-### API Server
-
-#### Starting the Server
-
-**Simple start:**
+Start the API server:
 ```bash
 python api_server.py
 ```
 
-**Production start with custom configuration:**
+The server will start on `http://localhost:6969`
+
+### API Endpoints
+
+- `GET /` - Health check
+- `POST /ask` - Send messages to Grok
+
+### API Examples
+
+**Basic request:**
 ```bash
-uvicorn api_server:app --host 0.0.0.0 --port 6969 --workers 50
+curl -X POST http://localhost:6969/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Hello, how are you?",
+    "model": "grok-3-fast"
+  }'
 ```
 
-#### Making API Requests
+**With proxy:**
+```bash
+curl -X POST http://localhost:6969/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Hello, how are you?",
+    "model": "grok-3-fast",
+    "proxy": "http://proxy-server:port"
+  }'
+```
 
-**New conversation:**
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:6969/ask",
-    json={
-        "proxy": "http://user:pass@ip:port",
-        "message": "Hello, Grok!",
-        "model": "grok-3-fast",
-        "extra_data": None
-    }
-)
-print(response.json())
+**With proxy authentication:**
+```bash
+curl -X POST http://localhost:6969/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Hello, how are you?",
+    "model": "grok-3-fast",
+    "proxy": "http://username:password@proxy-server:port"
+  }'
 ```
 
 **Continue conversation:**
-```python
-import requests
-
-response1 = requests.post(
-    "http://localhost:6969/ask",
-    json={
-        "proxy": "http://user:pass@ip:port",
-        "message": "Hello!",
-        "model": "grok-3-fast",
-        "extra_data": None
+```bash
+curl -X POST http://localhost:6969/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Follow-up question",
+    "model": "grok-3-fast",
+    "extra_data": {
+      // ... conversation data from previous response
     }
-)
-data1 = response1.json()
-print(data1)
-
-response2 = requests.post(
-    "http://localhost:6969/ask",
-    json={
-        "proxy": "http://user:pass@ip:port",
-        "message": "Tell me more",
-        "model": "grok-3-fast",
-        "extra_data": data1["extra_data"]
-    }
-)
-print(response2.json())
+  }'
 ```
 
-### API Response Format
+## API Request Format
+
+The API supports multiple input formats:
+
+1. **Simple format:**
+```json
+{
+  "message": "Your message here",
+  "model": "grok-3-fast",
+  "proxy": "optional proxy"
+}
+```
+
+2. **Google-style format:**
+```json
+{
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Your message here"
+        }
+      ]
+    }
+  ],
+  "model": "grok-3-fast",
+  "proxy": "optional proxy"
+}
+```
+
+## Response Format
+
+The API returns responses in the following format:
 
 ```json
 {
   "status": "success",
-  "response": "Complete response message from Grok",
-  "stream_response": ["Token", "by", "token", "response", "array"],
-  "images": null,
-  "extra_data": {"..."}
+  "response": "Full response text",
+  "stream_response": ["token1", "token2", "..."],
+  "extra_data": {
+    // Conversation data for continuing the conversation
+  }
 }
 ```
 
 ## Configuration
 
-### Proxy Format
+- **Port**: The server runs on port 6969 by default
+- **Host**: By default, it binds to 0.0.0.0 (accessible from other machines)
+- **Threading**: Enabled for concurrent requests
 
-The wrapper accepts proxies in the following formats:
-- `http://ip:port`
-- `http://username:password@ip:port`
-- `ip:port` (automatically prefixed with `http://`)
+## Rate Limiting
 
-### API Server Settings
+The API includes sophisticated rate limiting bypass mechanisms:
+- Fast retry strategy with minimal delays
+- Exponential backoff for sustained rate limits
+- Anti-bot detection bypass
+- Session rotation on failures
 
-Modify `api_server.py` to change:
-- **Host**: Default `0.0.0.0` (all interfaces)
-- **Port**: Default `6969`
-- **Workers**: Default `50` (adjust based on your server capacity)
+## Deployment
+
+For production deployment, you can use:
+
+**Using Uvicorn with multiple workers:**
+```bash
+uvicorn api_server:app --host 0.0.0.0 --port 6969 --workers 10
+```
+
+**Using Gunicorn:**
+```bash
+gunicorn api_server:app -w 10 -b 0.0.0.0:6969
+```
+
+## Dependencies
+
+- Python 3.10+
+- Flask
+- curl_cffi
+- coincurve
+- beautifulsoup4
+- colorama
 
 ## Troubleshooting
 
-**Common Issues:**
+- If you encounter rate limiting, try using a proxy
+- For anti-bot detection issues, the system will automatically attempt to bypass
+- Check the logs for detailed error information
 
-1. **IP Flag** - `{"error":{"code":7,"message":"Request rejected by anti-bot rules.","details":[]}}` - This indicates your IP or proxy has been flagged. Try using a different proxy or IP address.
+## Disclaimer
 
-## Support
-
-If you find this project helpful, consider starring the repository!
-
----
-
-**Note:** This project may break if Grok updates their web interface. Please report any issues if the wrapper stops working.
-
-**Contact:** This project is for educational purposes only. If Grok has an Issue with this Project please contact me via my email nuhuh3116@gmail.com.
+This is an unofficial API wrapper. Use responsibly and in compliance with xAI's terms of service.

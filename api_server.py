@@ -1,19 +1,15 @@
-from fastapi      import FastAPI, HTTPException
+from flask import Flask, request, jsonify
 from urllib.parse import urlparse, ParseResult
-from pydantic     import BaseModel
-from core         import Grok
-from uvicorn      import run
+from core import Grok
+import time
+import threading
 
-
-app = FastAPI()
-
-class ConversationRequest(BaseModel):
-    proxy: str
-    message: str
-    model: str = "grok-3-auto"
-    extra_data: dict = None
+app = Flask(__name__)
 
 def format_proxy(proxy: str) -> str:
+    # If proxy is empty, None, or just whitespace, return None to indicate no proxy
+    if not proxy or (isinstance(proxy, str) and proxy.strip() == ""):
+        return None
     
     if not proxy.startswith(("http://", "https://")):
         proxy: str = "http://" + proxy
@@ -34,24 +30,77 @@ def format_proxy(proxy: str) -> str:
             return f"http://{parsed.hostname}:{parsed.port}"
     
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid proxy format: {str(e)}")
+        raise ValueError(f"Invalid proxy format: {str(e)}")
 
-@app.post("/ask")
-async def create_conversation(request: ConversationRequest):
-    if not request.proxy or not request.message:
-        raise HTTPException(status_code=400, detail="Proxy and message are required")
+def extract_message_from_parts(data):
+    """Extract message from the parts format or fallback to message field"""
+    message = ""
     
-    proxy = format_proxy(request.proxy)
+    # Check if the data is in the new format with role and parts
+    if 'contents' in data:
+        # New format: array of content objects
+        for content in data['contents']:
+            if isinstance(content, dict) and content.get('role') == 'user':
+                parts = content.get('parts', [])
+                if isinstance(parts, list):
+                    for part in parts:
+                        if isinstance(part, dict) and 'text' in part:
+                            message += part['text']
+    elif 'role' in data and 'parts' in data:
+        # Single content object with role and parts
+        if data.get('role') == 'user':
+            parts = data.get('parts', [])
+            if isinstance(parts, list):
+                for part in parts:
+                    if isinstance(part, dict) and 'text' in part:
+                        message += part['text']
     
+    # Fallback to old format
+    if not message:
+        message = data.get('message', '')
+    
+    return message
+
+@app.route("/ask", methods=["POST"])
+def create_conversation():
     try:
-        answer: dict = Grok(request.model, proxy).start_convo(request.message, request.extra_data)
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
+        proxy = data.get("proxy")
+        model = data.get("model", "grok-3-auto")
+        extra_data = data.get("extra_data", None)
+        
+        # Extract message using the new format or fallback to old format
+        message = extract_message_from_parts(data)
 
-        return {
+        if not message:  # Message is required
+            return jsonify({"error": "Message is required"}), 400
+        
+        # Format proxy if provided, otherwise use None
+        formatted_proxy = format_proxy(proxy)
+        
+        # Create Grok instance and call start_convo
+        # The Grok class will automatically try to get a free proxy if none is provided
+        # and the free-proxy module is available
+        grok_instance = Grok(model, formatted_proxy)
+        answer = grok_instance.start_convo(message, extra_data)
+
+        return jsonify({
             "status": "success",
             **answer
-        }
+        })
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({"status": "healthy", "message": "Grok API Server is running"}), 200
 
 if __name__ == "__main__":
-    run("api_server:app", host="0.0.0.0", port=6969, workers=50)
+    # Enable threading for concurrent requests
+    app.run(host="0.0.0.0", port=6969, threaded=True)
