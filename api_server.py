@@ -4,6 +4,7 @@ from core import Grok
 import time
 import threading
 import re
+import uuid
 
 app = Flask(__name__)
 
@@ -144,10 +145,114 @@ def create_conversation():
 def health_check():
     return jsonify({"status": "healthy", "message": "Grok API Server is running"}), 200
 
+def convert_messages_to_prompt(messages):
+    """Convert OpenAI-style messages to a single prompt string"""
+    prompt_parts = []
+    
+    for message in messages:
+        role = message.get('role', '')
+        content = message.get('content', '')
+        
+        if isinstance(content, list):
+            # Handle content arrays (like images, text, etc.)
+            text_content = ""
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'text':
+                    text_content += item.get('text', '')
+            content = text_content
+        
+        if role == 'system':
+            prompt_parts.append(f"System Instruction: {content}")
+        elif role == 'user':
+            prompt_parts.append(f"User: {content}")
+        elif role == 'assistant':
+            prompt_parts.append(f"Assistant: {content}")
+    
+    return "\n\n".join(prompt_parts)
+
+def create_openai_response(grok_response, model_name, original_messages):
+    """Create an OpenAI-compatible response from Grok response"""
+    import time
+    
+    # Generate a unique ID for the response
+    response_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    
+    # Combine stream response if available, otherwise use response
+    if "stream_response" in grok_response and grok_response["stream_response"]:
+        content = "".join(grok_response["stream_response"])
+    elif "response" in grok_response and grok_response["response"]:
+        content = grok_response["response"]
+    else:
+        content = ""
+    
+    # Count tokens roughly (simple approximation)
+    prompt_tokens = sum(len(str(msg.get('content', ''))) for msg in original_messages if msg.get('content'))
+    completion_tokens = len(content)
+    total_tokens = prompt_tokens + completion_tokens
+    
+    # Create the OpenAI-compatible response
+    openai_response = {
+        "id": response_id,
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": f"{model_name}-2024-07-18",  # Adding date suffix like in your example
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": content
+                },
+                "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
+    }
+    
+    return openai_response
+
 @app.route("/v1/chat/completions", methods=["POST"])
 def openai_compatible():
-    """OpenAI compatible endpoint that routes to /ask logic"""
-    return create_conversation()
+    """OpenAI compatible endpoint that converts requests and responses"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
+        # Extract parameters from OpenAI-style request
+        model = data.get("model", "grok-3-auto")
+        messages = data.get("messages", [])
+        temperature = data.get("temperature", 1.0)
+        max_tokens = data.get("max_tokens", 2000)  # Default to 2000 tokens
+        
+        # Convert messages to a single prompt string
+        prompt = convert_messages_to_prompt(messages)
+        
+        if not prompt:
+            return jsonify({"error": "Messages are required"}), 400
+        
+        # Extract proxy if provided
+        proxy = data.get("proxy")
+        formatted_proxy = format_proxy(proxy)
+        
+        # Create Grok instance and call start_convo
+        grok_instance = Grok(model, formatted_proxy)
+        grok_response = grok_instance.start_convo(prompt)
+        
+        # Create OpenAI-compatible response
+        openai_response = create_openai_response(grok_response, model, messages)
+        
+        return jsonify(openai_response)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     # Enable threading for concurrent requests

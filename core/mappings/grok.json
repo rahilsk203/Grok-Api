@@ -106,5 +106,14 @@
       "7fc68154837dcaf888bc46a173c6c5f187d92eddf1",
       "7f725fa59c1d1e77d14012b3f4f6015bb0dbc64e6c"
     ]
+  },
+  {
+    "xsid_script": "static/chunks/a5fafb11fba700fb.js",
+    "action_script": "/_next/static/chunks/c6763fb0b0de50d8.js",
+    "actions": [
+      "7f3666fb40fa4b938ffda3ffe9e6098870894774bb",
+      "7f82e143c87c19e18098aaee60e791c19270960c40",
+      "7f3281537331a832d550549db3f02e1ea8a5eb78c6"
+    ]
   }
 ]
