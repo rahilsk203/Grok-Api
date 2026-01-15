@@ -175,7 +175,7 @@ def create_openai_response(grok_response, model_name, original_messages):
     import time
     
     # Generate a unique ID for the response
-    response_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    response_id = f"chatcmpl-{uuid.uuid4().hex[:12]}K"
     
     # Combine stream response if available, otherwise use response
     if "stream_response" in grok_response and grok_response["stream_response"]:
@@ -195,22 +195,31 @@ def create_openai_response(grok_response, model_name, original_messages):
         "id": response_id,
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": f"{model_name}-2024-07-18",  # Adding date suffix like in your example
+        "model": f"{model_name}-2024-11-20",  # Updated to match the format in your example
         "choices": [
             {
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": content
+                    "content": content,
+                    "refusal": None
                 },
+                "logprobs": None,
                 "finish_reason": "stop"
             }
         ],
         "usage": {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens
-        }
+            "total_tokens": total_tokens,
+            "prompt_tokens_details": {
+                "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+                "reasoning_tokens": 0
+            }
+        },
+        "system_fingerprint": "fp_0123456789abcdef"
     }
     
     return openai_response
