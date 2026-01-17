@@ -43,7 +43,7 @@ The server will start on `http://localhost:6969`
 
 **Basic request:**
 ```bash
-curl -X POST http://localhost:6969/ask \
+curl -X POST http://localhost:6970/ask \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Hello, how are you?",
@@ -53,7 +53,7 @@ curl -X POST http://localhost:6969/ask \
 
 **With proxy:**
 ```bash
-curl -X POST http://localhost:6969/ask \
+curl -X POST http://localhost:6970/ask \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Hello, how are you?",

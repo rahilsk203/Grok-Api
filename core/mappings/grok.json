@@ -124,5 +124,14 @@
       "7f5b5ec26f5846cc7301b16aa97c3a6f50c413a224",
       "7f1c41a58e9ecb799b736c7b79399563dd7c138b9a"
     ]
+  },
+  {
+    "xsid_script": "static/chunks/88630c5bb450c4de.js",
+    "action_script": "/_next/static/chunks/c87912315e7307fe.js",
+    "actions": [
+      "7fe6df796a364d66bb9f51c3a0551acb690afc252f",
+      "7fd874e5d096e1b6cd4ffbf284aaf1f38728024840",
+      "7f5321e4097acd5e6b572df81db08ac76a9ebb3f93"
+    ]
   }
 ]

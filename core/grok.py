@@ -29,6 +29,12 @@ class Grok:
     
     def __init__(self, model: str = "grok-3-auto", proxy: str = None) -> None:
         self.session: requests.session.Session = requests.Session(impersonate="chrome136", default_headers=False)
+        # Optimize session with connection pooling and keep-alive
+        self.session.verify = False  # Disable SSL verification for faster connections
+        self.session.headers.update({
+            "Connection": "keep-alive",
+            "Keep-Alive": "timeout=10, max=1000"
+        })
         self.headers: Headers = Headers()
         
         self.model_mode: str = _Models.get_model_mode(model, 0)
@@ -46,34 +52,40 @@ class Grok:
                 "all": proxy
             }
         
-        # Initialize retry settings
-        self.max_retries: int = 5  # Increased max retries
-        self.base_delay: float = 0.5  # Reduced base delay for faster retries
-        self.max_delay: float = 30.0  # Reduced maximum delay
-        self.backoff_factor: float = 1.5  # Reduced backoff factor for faster retries
+        # Initialize optimized retry settings
+        self.max_retries: int = 3  # Reduced max retries for faster failure
+        self.base_delay: float = 0.05  # Significantly reduced base delay for faster retries
+        self.max_delay: float = 15.0  # Reduced maximum delay
+        self.backoff_factor: float = 1.2  # Reduced backoff factor for faster retries
         
         # Fast retry settings for quick bypass
-        self.fast_retry_attempts: int = 2  # Number of fast retry attempts
-        self.fast_delay: float = 0.2  # Short delay for fast retries
+        self.fast_retry_attempts: int = 3  # Increased fast retry attempts
+        self.fast_delay: float = 0.05  # Very short delay for fast retries
     
     def _calculate_delay(self, attempt: int, is_fast_retry: bool = False) -> float:
         """Calculate delay with exponential backoff and jitter"""
         if is_fast_retry:
             # Use fast retry settings
-            base_delay = min(self.fast_delay * (1.2 ** attempt), 2.0)
+            base_delay = min(self.fast_delay * (1.1 ** attempt), 1.0)  # Even faster exponent
         else:
             # Calculate base delay with exponential backoff
             base_delay = min(self.base_delay * (self.backoff_factor ** attempt), self.max_delay)
         
-        # Add jitter to prevent thundering herd problem (±25% of base delay)
-        jitter_range = base_delay * 0.25
+        # Reduce jitter range for more predictable timing
+        jitter_range = base_delay * 0.1  # Reduced jitter to 10%
         jitter = random.uniform(-jitter_range, jitter_range)
-        delay = max(base_delay + jitter, 0.05)  # Ensure minimum delay
+        delay = max(base_delay + jitter, 0.02)  # Further reduced minimum delay
         return delay
     
     def _create_new_session(self):
         """Create a new session with fresh impersonation to bypass rate limits"""
         new_session = requests.Session(impersonate="chrome136", default_headers=False)
+        # Optimize new session with same performance settings
+        new_session.verify = False
+        new_session.headers.update({
+            "Connection": "keep-alive",
+            "Keep-Alive": "timeout=10, max=1000"
+        })
         if hasattr(self, 'session') and hasattr(self.session, 'proxies'):
             new_session.proxies = getattr(self.session, 'proxies', {})
         return new_session
@@ -161,7 +173,8 @@ class Grok:
         
         if not extra_data:
             self.session.headers = self.headers.LOAD
-            load_site: requests.models.Response = self.session.get('https://grok.com/c')
+            # Optimized loading with shorter timeout
+            load_site: requests.models.Response = self.session.get('https://grok.com/c', timeout=10)
             self.session.cookies.update(load_site.cookies)
             
             scripts: list = [s['src'] for s in BeautifulSoup(load_site.text, 'html.parser').find_all('script', src=True) if s['src'].startswith('/_next/static/chunks/')]
@@ -196,7 +209,7 @@ class Grok:
             mime.addpart(name="1", data=bytes(self.keys["userPublicKey"]), filename="blob", content_type="application/octet-stream")
             mime.addpart(name="0", filename=None, data='[{"userPublicKey":"$o1"}]')
             
-            c_request: requests.models.Response = self.session.post("https://grok.com/c", multipart=mime)
+            c_request: requests.models.Response = self.session.post("https://grok.com/c", multipart=mime, timeout=10)
             self.session.cookies.update(c_request.cookies)
             
             self.anon_user: str = Utils.between(c_request.text, '{"anonUserId":"', '"')
@@ -210,7 +223,7 @@ class Grok:
                 case 2:
                     data: str = dumps([{"anonUserId":self.anon_user,**self.challenge_dict}])
             
-            c_request: requests.models.Response = self.session.post('https://grok.com/c', data=data)
+            c_request: requests.models.Response = self.session.post('https://grok.com/c', data=data, timeout=10)
             self.session.cookies.update(c_request.cookies)
 
             match self.c_run:
@@ -289,8 +302,8 @@ class Grok:
                 'isAsyncChat': False,
             }
             
-            # Increase timeout for handling rate limits
-            convo_request: requests.models.Response = self.session.post('https://grok.com/rest/app-chat/conversations/new', json=conversation_data, timeout=45)
+            # Optimized timeout for faster response
+            convo_request: requests.models.Response = self.session.post('https://grok.com/rest/app-chat/conversations/new', json=conversation_data, timeout=15)
             
             if "modelResponse" in convo_request.text:
                 response = conversation_id = parent_response = image_urls = None
@@ -414,8 +427,8 @@ class Grok:
                 'isRegenRequest': False,
             }
 
-            # Increase timeout for handling rate limits
-            convo_request: requests.models.Response = self.session.post(f'https://grok.com/rest/app-chat/conversations/{extra_data["conversationId"]}/responses', json=conversation_data, timeout=45)
+            # Optimized timeout for faster response
+            convo_request: requests.models.Response = self.session.post(f'https://grok.com/rest/app-chat/conversations/{extra_data["conversationId"]}/responses', json=conversation_data, timeout=15)
 
             if "modelResponse" in convo_request.text:
                 response = conversation_id = parent_response = image_urls = None
